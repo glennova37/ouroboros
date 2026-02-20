@@ -146,6 +146,9 @@ def _openai_to_google(
                 response_data = json.loads(text)
             except (json.JSONDecodeError, TypeError):
                 response_data = {"result": text}
+            # google.protobuf.Struct requires top-level dict — wrap lists/scalars
+            if not isinstance(response_data, dict):
+                response_data = {"result": response_data}
             contents.append({
                 "role": "user",
                 "parts": [{
