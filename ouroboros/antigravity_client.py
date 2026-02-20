@@ -130,13 +130,16 @@ def _openai_to_google(
                     "functionCall": {
                         "name": fn.get("name", ""),
                         "args": args,
-                        "id": tc.get("id", f"call_{idx}"),
                     }
                 }
-                # Restore thoughtSignature if saved during response parsing
+                # Restore thoughtSignature if saved during response parsing.
+                # If missing (e.g. Claude-generated FC), use Google's official
+                # dummy string to bypass strict validation on current turn.
                 ts = tc.get("_thought_signature")
                 if ts:
                     fc_part["thoughtSignature"] = ts
+                else:
+                    fc_part["thoughtSignature"] = "context_engineering_is_the_way to_go"
                 parts.append(fc_part)
             contents.append({"role": google_role, "parts": parts})
             continue
@@ -162,7 +165,6 @@ def _openai_to_google(
                 "parts": [{
                     "functionResponse": {
                         "name": name,
-                        "id": tool_call_id,
                         "response": response_data,
                     }
                 }]
