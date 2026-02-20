@@ -75,6 +75,16 @@ def _resolve_model(model: str) -> str:
 # Message conversion: OpenAI → Google GenerativeAI
 # ---------------------------------------------------------------------------
 
+def _resolve_fn_name(messages: List[Dict[str, Any]], tool_call_id: str) -> str:
+    """Look up function name from tool_call_id by scanning assistant messages."""
+    for msg in reversed(messages):
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            for tc in msg["tool_calls"]:
+                if tc.get("id") == tool_call_id:
+                    return tc.get("function", {}).get("name", tool_call_id)
+    return tool_call_id
+
+
 def _openai_to_google(
     messages: List[Dict[str, Any]],
     tools: Optional[List[Dict[str, Any]]] = None,
@@ -121,7 +131,11 @@ def _openai_to_google(
         # Handle tool results
         if role == "tool":
             tool_call_id = msg.get("tool_call_id", "")
-            name = msg.get("name", tool_call_id)
+            # Resolve function name: prefer explicit name, then look up from
+            # the matching tool_call in the preceding assistant message
+            name = msg.get("name", "")
+            if not name:
+                name = _resolve_fn_name(messages, tool_call_id)
             text = content if isinstance(content, str) else json.dumps(content)
             try:
                 response_data = json.loads(text)
@@ -388,9 +402,24 @@ class AntigravityClient:
                     last_error = f"403 from {endpoint}: {resp.text[:200]}"
                     continue
 
-                if resp.status_code == 404:
-                    log.warning("404 on %s: %s", endpoint, resp.text[:200])
-                    last_error = f"404 from {endpoint}: {resp.text[:200]}"
+                if resp.status_code in (400, 404):
+                    # Log request details for debugging
+                    n_tools = len(body.get("request", {}).get("tools", [{}])[0].get("functionDeclarations", [])) if body.get("request", {}).get("tools") else 0
+                    n_contents = len(body.get("request", {}).get("contents", []))
+                    has_fn_call = any(
+                        any("functionCall" in p for p in c.get("parts", []))
+                        for c in body.get("request", {}).get("contents", [])
+                    )
+                    has_fn_response = any(
+                        any("functionResponse" in p for p in c.get("parts", []))
+                        for c in body.get("request", {}).get("contents", [])
+                    )
+                    log.warning(
+                        "%d on %s: model=%s, tools=%d, contents=%d, has_functionCall=%s, has_functionResponse=%s, resp=%s",
+                        resp.status_code, endpoint, api_model, n_tools, n_contents,
+                        has_fn_call, has_fn_response, resp.text[:300],
+                    )
+                    last_error = f"{resp.status_code} from {endpoint}: {resp.text[:200]}"
                     continue
 
                 resp.raise_for_status()
