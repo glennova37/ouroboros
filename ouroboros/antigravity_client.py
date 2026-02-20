@@ -230,6 +230,7 @@ def _google_to_openai_message(response: Dict[str, Any]) -> Dict[str, Any]:
     """Convert Google GenerativeAI response to OpenAI message dict."""
     candidates = response.get("candidates", [])
     if not candidates:
+        log.warning("Antigravity: no candidates in response: %s", json.dumps(response)[:500])
         return {"role": "assistant", "content": None}
 
     candidate = candidates[0]
@@ -241,7 +242,10 @@ def _google_to_openai_message(response: Dict[str, Any]) -> Dict[str, Any]:
     tc_index = 0
 
     for part in parts:
-        if "text" in part and not part.get("thought"):
+        # Skip pure thought/thinking parts (both thought:true and thoughtSignature-only)
+        if part.get("thought"):
+            continue
+        if "text" in part:
             text_parts.append(part["text"])
         elif "functionCall" in part:
             fc = part["functionCall"]
@@ -262,6 +266,11 @@ def _google_to_openai_message(response: Dict[str, Any]) -> Dict[str, Any]:
 
     if tool_calls:
         msg["tool_calls"] = tool_calls
+
+    # Debug: log when we got parts but no usable content
+    if not text_parts and not tool_calls and parts:
+        log.warning("Antigravity: response had %d parts but no text/tool_calls. Part keys: %s",
+                     len(parts), [list(p.keys()) for p in parts[:3]])
 
     return msg
 
