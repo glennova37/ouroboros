@@ -311,8 +311,10 @@ class AntigravityClient:
             "temperature": 1.0,
         }
 
-        # Add thinking config for capable models
-        if any(kw in api_model for kw in ("gemini-3", "claude")):
+        # Add thinking config ONLY for thinking-capable models
+        # claude-sonnet-4-6 is NON-thinking — thinkingConfig causes 400
+        is_thinking = ("gemini-3" in api_model) or ("thinking" in api_model)
+        if is_thinking:
             inner_body["generationConfig"]["thinkingConfig"] = {
                 "thinkingBudget": 8192,
             }
