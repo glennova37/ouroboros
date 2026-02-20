@@ -1,7 +1,9 @@
 """
 Ouroboros — LLM client.
 
-The only module that communicates with the LLM API (OpenRouter).
+The only module that communicates with the LLM API.
+Supports two backends: Antigravity (Google OAuth, free) and OpenRouter (paid).
+Backend is selected via OUROBOROS_LLM_BACKEND env var (default: "antigravity").
 Contract: chat(), default_model(), available_models(), add_usage().
 """
 
@@ -15,6 +17,11 @@ from typing import Any, Dict, List, Optional, Tuple
 log = logging.getLogger(__name__)
 
 DEFAULT_LIGHT_MODEL = "google/gemini-3-pro-preview"
+
+
+def get_llm_backend() -> str:
+    """Return active backend: 'antigravity' or 'openrouter'."""
+    return os.environ.get("OUROBOROS_LLM_BACKEND", "antigravity").strip().lower()
 
 
 def normalize_reasoning_effort(value: str, default: str = "medium") -> str:
@@ -103,7 +110,7 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
 
 
 class LLMClient:
-    """OpenRouter API wrapper. All LLM calls go through this class."""
+    """LLM API wrapper. Supports Antigravity (free) and OpenRouter (paid) backends."""
 
     def __init__(
         self,
@@ -113,6 +120,17 @@ class LLMClient:
         self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
         self._base_url = base_url
         self._client = None
+        self._antigravity_client = None
+
+    @property
+    def backend(self) -> str:
+        return get_llm_backend()
+
+    def _get_antigravity(self):
+        if self._antigravity_client is None:
+            from ouroboros.antigravity_client import AntigravityClient
+            self._antigravity_client = AntigravityClient()
+        return self._antigravity_client
 
     def _get_client(self):
         if self._client is None:
@@ -161,6 +179,35 @@ class LLMClient:
         tool_choice: str = "auto",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Single LLM call. Returns: (response_message_dict, usage_dict with cost)."""
+
+        # ---- Antigravity backend ----
+        if self.backend == "antigravity":
+            return self._chat_antigravity(messages, model, tools, max_tokens)
+
+        # ---- OpenRouter backend (original) ----
+        return self._chat_openrouter(messages, model, tools, reasoning_effort, max_tokens, tool_choice)
+
+    def _chat_antigravity(
+        self,
+        messages: List[Dict[str, Any]],
+        model: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        max_tokens: int = 16384,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """LLM call via Antigravity (Google Cloud Code API)."""
+        ag = self._get_antigravity()
+        return ag.chat(messages=messages, model=model, tools=tools, max_tokens=max_tokens)
+
+    def _chat_openrouter(
+        self,
+        messages: List[Dict[str, Any]],
+        model: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        reasoning_effort: str = "medium",
+        max_tokens: int = 16384,
+        tool_choice: str = "auto",
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """LLM call via OpenRouter (original implementation)."""
         client = self._get_client()
         effort = normalize_reasoning_effort(reasoning_effort)
 
@@ -184,7 +231,6 @@ class LLMClient:
         }
         if tools:
             # Add cache_control to last tool for Anthropic prompt caching
-            # This caches all tool schemas (they never change between calls)
             tools_with_cache = [t for t in tools]  # shallow copy
             if tools_with_cache:
                 last_tool = {**tools_with_cache[-1]}  # copy last tool
@@ -206,8 +252,6 @@ class LLMClient:
                 usage["cached_tokens"] = int(prompt_details["cached_tokens"])
 
         # Extract cache_write_tokens from prompt_tokens_details if available
-        # OpenRouter: "cache_write_tokens"
-        # Native Anthropic: "cache_creation_tokens" or "cache_creation_input_tokens"
         if not usage.get("cache_write_tokens"):
             prompt_details_for_write = usage.get("prompt_tokens_details") or {}
             if isinstance(prompt_details_for_write, dict):

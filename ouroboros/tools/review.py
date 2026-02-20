@@ -24,6 +24,10 @@ CONCURRENCY_LIMIT = 5
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
+def _get_backend() -> str:
+    return os.environ.get("OUROBOROS_LLM_BACKEND", "antigravity").strip().lower()
+
+
 def get_tools():
     """Return list of ToolEntry for registry."""
     return [
@@ -147,15 +151,20 @@ async def _multi_model_review_async(content: str, prompt: str, models: list, ctx
         return {"error": "At least one model is required"}
 
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
-    if not api_key:
-        return {"error": "OPENROUTER_API_KEY not set"}
+    backend = _get_backend()
+
+    if backend != "antigravity" and not api_key:
+        return {"error": "OPENROUTER_API_KEY not set and backend is not antigravity"}
+
+    if backend == "antigravity":
+        return await _multi_model_review_antigravity(content, prompt, models, ctx)
 
     messages = [
         {"role": "system", "content": prompt},
         {"role": "user", "content": content},
     ]
 
-    # Query all models with bounded concurrency
+    # Query all models with bounded concurrency (OpenRouter path)
     semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
     async with httpx.AsyncClient() as client:
         tasks = [_query_model(client, m, messages, api_key, semaphore) for m in models]
@@ -165,6 +174,57 @@ async def _multi_model_review_async(content: str, prompt: str, models: list, ctx
     review_results = []
     for model, result, headers_dict in results:
         review_result = _parse_model_response(model, result, headers_dict)
+        _emit_usage_event(review_result, ctx)
+        review_results.append(review_result)
+
+    return {
+        "model_count": len(models),
+        "results": review_results,
+    }
+
+
+async def _multi_model_review_antigravity(content: str, prompt: str, models: list, ctx: ToolContext):
+    """Run multi-model review via Antigravity backend."""
+    from ouroboros.antigravity_client import AntigravityClient
+    ag = AntigravityClient()
+    messages = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": content},
+    ]
+
+    review_results = []
+    for model in models:
+        try:
+            msg, usage = ag.chat(messages=messages, model=model, max_tokens=4096)
+            text = msg.get("content") or "(empty response)"
+            # Parse verdict
+            verdict = "UNKNOWN"
+            for line in text.split("\n")[:3]:
+                upper = line.upper()
+                if "PASS" in upper:
+                    verdict = "PASS"
+                    break
+                elif "FAIL" in upper:
+                    verdict = "FAIL"
+                    break
+
+            review_result = {
+                "model": model,
+                "verdict": verdict,
+                "text": text,
+                "tokens_in": usage.get("prompt_tokens", 0),
+                "tokens_out": usage.get("completion_tokens", 0),
+                "cost_estimate": 0.0,  # Antigravity is free
+            }
+        except Exception as e:
+            review_result = {
+                "model": model,
+                "verdict": "ERROR",
+                "text": f"Error: {str(e)[:200]}",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost_estimate": 0.0,
+            }
         _emit_usage_event(review_result, ctx)
         review_results.append(review_result)
 
