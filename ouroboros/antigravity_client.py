@@ -299,24 +299,38 @@ class AntigravityClient:
         project_id = get_project_id()
         headers = _get_headers(access_token)
 
-        body = _openai_to_google(messages, tools)
+        # Add project header (required by Antigravity)
+        if project_id:
+            headers["x-goog-user-project"] = project_id
+
+        inner_body = _openai_to_google(messages, tools)
 
         # Generation config
-        body["generationConfig"] = {
+        inner_body["generationConfig"] = {
             "maxOutputTokens": max_tokens,
             "temperature": 1.0,
         }
 
         # Add thinking config for capable models
         if any(kw in api_model for kw in ("gemini-3", "claude")):
-            body["generationConfig"]["thinkingConfig"] = {
+            inner_body["generationConfig"]["thinkingConfig"] = {
                 "thinkingBudget": 8192,
             }
+
+        # Antigravity wraps the request: {model, request: {model, contents, ...}}
+        body = {
+            "model": api_model,
+            "request": {
+                "model": api_model,
+                **inner_body,
+            },
+        }
 
         # Try endpoints with fallback
         last_error = None
         for endpoint in ENDPOINTS:
-            url = f"{endpoint}/v1internal/models/{api_model}:generateContent"
+            # URL has NO /models/{model} — model is in the body
+            url = f"{endpoint}/v1internal:generateContent"
             try:
                 resp = requests.post(
                     url,
@@ -329,6 +343,8 @@ class AntigravityClient:
                     # Token expired — refresh and retry once
                     access_token = get_access_token()
                     headers = _get_headers(access_token)
+                    if project_id:
+                        headers["x-goog-user-project"] = project_id
                     resp = requests.post(url, headers=headers, json=body, timeout=120)
 
                 if resp.status_code == 429:
@@ -339,6 +355,11 @@ class AntigravityClient:
                 if resp.status_code == 403:
                     log.warning("Permission denied on %s: %s", endpoint, resp.text[:200])
                     last_error = f"403 from {endpoint}: {resp.text[:200]}"
+                    continue
+
+                if resp.status_code == 404:
+                    log.warning("404 on %s: %s", endpoint, resp.text[:200])
+                    last_error = f"404 from {endpoint}: {resp.text[:200]}"
                     continue
 
                 resp.raise_for_status()
