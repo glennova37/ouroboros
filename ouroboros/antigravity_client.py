@@ -323,6 +323,57 @@ def _extract_usage(response: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Sanitization: unsigned functionCall/functionResponse
+# ---------------------------------------------------------------------------
+
+def _sanitize_unsigned_fc(contents: List[Dict[str, Any]]) -> None:
+    """Convert functionCall parts without thoughtSignature to text parts.
+
+    When Gemini thinking mode is active, ALL functionCall parts in the history
+    must have a valid thoughtSignature. Claude fallback produces functionCalls
+    without it (Claude doesn't use Google's thinking signatures). This poisons
+    the history for Gemini.
+
+    Fix: replace unsigned functionCall parts with text equivalents, and
+    corresponding functionResponse parts with text equivalents.
+    Modifies contents in-place.
+    """
+    # Pass 1: find all unsigned functionCall parts and convert to text
+    unsigned_fn_names: set = set()
+    for content in contents:
+        new_parts = []
+        for part in content.get("parts", []):
+            if "functionCall" in part and "thoughtSignature" not in part:
+                fc = part["functionCall"]
+                fn_name = fc.get("name", "?")
+                args = fc.get("args", {})
+                unsigned_fn_names.add(fn_name)
+                # Convert to text equivalent
+                new_parts.append({"text": f"[Tool call: {fn_name}({json.dumps(args, ensure_ascii=False)[:200]})]"})
+                log.debug("Sanitized unsigned functionCall '%s' -> text", fn_name)
+            else:
+                new_parts.append(part)
+        content["parts"] = new_parts
+
+    # Pass 2: convert functionResponse for unsigned functions to text
+    if unsigned_fn_names:
+        for content in contents:
+            new_parts = []
+            for part in content.get("parts", []):
+                if "functionResponse" in part:
+                    fr = part["functionResponse"]
+                    fr_name = fr.get("name", "?")
+                    # Convert ALL functionResponse without matching signed FC to text
+                    response_data = fr.get("response", {})
+                    result_str = json.dumps(response_data, ensure_ascii=False)[:300]
+                    new_parts.append({"text": f"[Tool result ({fr_name}): {result_str}]"})
+                    log.debug("Sanitized functionResponse '%s' -> text", fr_name)
+                else:
+                    new_parts.append(part)
+            content["parts"] = new_parts
+
+
+# ---------------------------------------------------------------------------
 # Main client
 # ---------------------------------------------------------------------------
 
@@ -375,6 +426,12 @@ class AntigravityClient:
                 inner_body["generationConfig"]["thinkingConfig"] = {
                     "thinkingLevel": level,
                 }
+
+            # Sanitize: Gemini thinking mode REQUIRES thoughtSignature on ALL
+            # functionCall parts. Claude fallback produces functionCalls WITHOUT
+            # it, poisoning history. Convert unsigned FC/FR pairs to text.
+            if "claude" not in api_model:
+                _sanitize_unsigned_fc(inner_body.get("contents", []))
 
         # Antigravity wraps the request: {project, model, request, requestType, ...}
         import uuid
