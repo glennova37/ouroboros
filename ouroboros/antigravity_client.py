@@ -30,12 +30,13 @@ ENDPOINTS = [
 ]
 
 def _get_headers(access_token: str) -> Dict[str, str]:
+    # IMPORTANT: do NOT include x-goog-user-project, X-Goog-Api-Client,
+    # or Client-Metadata — they trigger 403 "Cloud Code Private API"
+    # permission checks on the managed project.
     return {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
         "User-Agent": "antigravity/1.18.3 darwin/arm64",
-        "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
-        "Client-Metadata": '{"ideType":"ANTIGRAVITY","platform":"MACOS","pluginType":"GEMINI"}',
     }
 
 # ---------------------------------------------------------------------------
@@ -43,21 +44,21 @@ def _get_headers(access_token: str) -> Dict[str, str]:
 # ---------------------------------------------------------------------------
 
 _MODEL_MAP = {
-    # Gemini models
-    "google/gemini-3-pro-preview": "gemini-3-pro",
+    # Confirmed working Antigravity model names (tested 2026-02-20)
+    # Gemini
+    "google/gemini-3-pro-preview": "gemini-3-pro-high",
     "google/gemini-3-flash-preview": "gemini-3-flash",
     "google/gemini-3.1-pro-preview": "gemini-3.1-pro",
-    "google/gemini-2.5-pro": "gemini-2.5-pro",
-    "google/gemini-2.5-flash": "gemini-2.5-flash",
-    # Claude models
+    # Claude
     "anthropic/claude-sonnet-4.6": "claude-sonnet-4-6",
-    "anthropic/claude-opus-4.6": "claude-opus-4-6",
+    "anthropic/claude-opus-4.6": "claude-opus-4-6-thinking",
     # Pass-through for already-correct names
-    "gemini-3-pro": "gemini-3-pro",
+    "gemini-3-pro": "gemini-3-pro-high",
     "gemini-3-flash": "gemini-3-flash",
     "gemini-3.1-pro": "gemini-3.1-pro",
     "claude-sonnet-4-6": "claude-sonnet-4-6",
-    "claude-opus-4-6": "claude-opus-4-6",
+    "claude-opus-4-6": "claude-opus-4-6-thinking",
+    "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
 }
 
 def _resolve_model(model: str) -> str:
@@ -299,9 +300,8 @@ class AntigravityClient:
         project_id = get_project_id()
         headers = _get_headers(access_token)
 
-        # Add project header (required by Antigravity)
-        if project_id:
-            headers["x-goog-user-project"] = project_id
+        # NOTE: do NOT set x-goog-user-project header — causes 403 on managed projects.
+        # Project ID goes in the body instead.
 
         inner_body = _openai_to_google(messages, tools)
 
@@ -348,8 +348,6 @@ class AntigravityClient:
                     # Token expired — refresh and retry once
                     access_token = get_access_token()
                     headers = _get_headers(access_token)
-                    if project_id:
-                        headers["x-goog-user-project"] = project_id
                     resp = requests.post(url, headers=headers, json=body, timeout=120)
 
                 if resp.status_code == 429:
