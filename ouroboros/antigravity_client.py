@@ -320,10 +320,10 @@ class AntigravityClient:
         is_thinking = ("gemini-3" in api_model) or ("thinking" in api_model)
         if is_thinking:
             if "claude" in api_model:
-                # Claude uses snake_case + high budget (32768)
+                # Claude: maxOutputTokens MUST be > thinking_budget
                 inner_body["generationConfig"]["thinkingConfig"] = {
                     "include_thoughts": True,
-                    "thinking_budget": 32768,
+                    "thinking_budget": 8192,
                 }
                 inner_body["generationConfig"]["maxOutputTokens"] = max(max_tokens, 16384)
             else:
