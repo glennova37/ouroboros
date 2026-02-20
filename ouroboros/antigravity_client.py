@@ -111,7 +111,7 @@ def _openai_to_google(
             parts = []
             if content:
                 parts.append({"text": content})
-            for tc in msg["tool_calls"]:
+            for idx, tc in enumerate(msg["tool_calls"]):
                 fn = tc.get("function", {})
                 args = fn.get("arguments", "{}")
                 if isinstance(args, str):
@@ -123,6 +123,7 @@ def _openai_to_google(
                     "functionCall": {
                         "name": fn.get("name", ""),
                         "args": args,
+                        "id": tc.get("id", f"call_{idx}"),
                     }
                 }
                 # Restore thoughtSignature if saved during response parsing
@@ -154,6 +155,7 @@ def _openai_to_google(
                 "parts": [{
                     "functionResponse": {
                         "name": name,
+                        "id": tool_call_id,
                         "response": response_data,
                     }
                 }]
