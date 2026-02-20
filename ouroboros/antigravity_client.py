@@ -317,13 +317,18 @@ class AntigravityClient:
                 "thinkingBudget": 8192,
             }
 
-        # Antigravity wraps the request: {model, request: {model, contents, ...}}
+        # Antigravity wraps the request: {project, model, request, requestType, ...}
+        import uuid
         body = {
+            "project": project_id or "",
             "model": api_model,
             "request": {
                 "model": api_model,
                 **inner_body,
             },
+            "requestType": "agent",
+            "userAgent": "antigravity",
+            "requestId": f"agent-{uuid.uuid4()}",
         }
 
         # Try endpoints with fallback
