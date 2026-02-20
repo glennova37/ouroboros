@@ -368,6 +368,10 @@ class AntigravityClient:
                 resp.raise_for_status()
                 data = resp.json()
 
+                # Antigravity wraps response: {response: {candidates, ...}, traceId, metadata}
+                if "response" in data and "candidates" in data["response"]:
+                    data = data["response"]
+
                 msg = _google_to_openai_message(data)
                 usage = _extract_usage(data)
                 return msg, usage
