@@ -47,18 +47,18 @@ _MODEL_MAP = {
     # Exact API model names from opencode-antigravity-auth/model-resolver.ts
     # Gemini 3 Pro: REQUIRES tier suffix (-low or -high)
     # Gemini 3 Flash: bare name (thinkingLevel in config)
-    "google/gemini-3-pro-preview": "gemini-3-pro-low",
+    "google/gemini-3-pro-preview": "gemini-3-pro-high",
     "google/gemini-3-flash-preview": "gemini-3-flash",
-    "google/gemini-3.1-pro-preview": "gemini-3.1-pro-low",
+    "google/gemini-3.1-pro-preview": "gemini-3.1-pro-high",
     # Claude
     "anthropic/claude-sonnet-4.6": "claude-sonnet-4-6",
     "anthropic/claude-opus-4.6": "claude-opus-4-6-thinking",
     # Pass-through
-    "gemini-3-pro": "gemini-3-pro-low",
+    "gemini-3-pro": "gemini-3-pro-high",
     "gemini-3-pro-low": "gemini-3-pro-low",
     "gemini-3-pro-high": "gemini-3-pro-high",
     "gemini-3-flash": "gemini-3-flash",
-    "gemini-3.1-pro": "gemini-3.1-pro-low",
+    "gemini-3.1-pro": "gemini-3.1-pro-high",
     "gemini-3.1-pro-low": "gemini-3.1-pro-low",
     "gemini-3.1-pro-high": "gemini-3.1-pro-high",
     "claude-sonnet-4-6": "claude-sonnet-4-6",
@@ -323,9 +323,9 @@ class AntigravityClient:
                 # Claude: maxOutputTokens MUST be > thinking_budget
                 inner_body["generationConfig"]["thinkingConfig"] = {
                     "include_thoughts": True,
-                    "thinking_budget": 8192,
+                    "thinking_budget": 32768,
                 }
-                inner_body["generationConfig"]["maxOutputTokens"] = max(max_tokens, 16384)
+                inner_body["generationConfig"]["maxOutputTokens"] = max(max_tokens, 65536)
             else:
                 # Gemini 3 uses thinkingLevel string (not numeric budget)
                 # Pro models: tier in model name, Flash: thinkingLevel param
