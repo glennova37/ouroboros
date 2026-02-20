@@ -250,40 +250,92 @@ def _fetch_email(access_token: str) -> str:
 
 
 def _fetch_project_id(access_token: str) -> str:
-    """Resolve Antigravity project ID via loadCodeAssist."""
+    """Resolve Antigravity managed project ID via loadCodeAssist + onboardUser.
+
+    Flow (from opencode-antigravity-auth/project.ts):
+      1. Call loadCodeAssist → extract cloudaicompanionProject
+      2. If none found → auto-provision via onboardUser
+      3. Fallback to DEFAULT_PROJECT_ID
+    """
     import requests
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
         "User-Agent": "google-api-nodejs-client/9.15.1",
+        "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
         "Client-Metadata": '{"ideType":"ANTIGRAVITY","platform":"MACOS","pluginType":"GEMINI"}',
     }
-    body = json.dumps({
-        "metadata": {
-            "ideType": "ANTIGRAVITY",
-            "platform": "MACOS",
-            "pluginType": "GEMINI",
-        }
-    })
+    metadata = {
+        "ideType": "ANTIGRAVITY",
+        "platform": "MACOS",
+        "pluginType": "GEMINI",
+    }
 
+    # Step 1: loadCodeAssist
+    load_payload = None
     for endpoint in ENDPOINTS_LOAD:
         try:
             resp = requests.post(
                 f"{endpoint}/v1internal:loadCodeAssist",
                 headers=headers,
-                data=body,
-                timeout=10,
+                json={"metadata": metadata},
+                timeout=15,
             )
-            if not resp.ok:
-                continue
-            data = resp.json()
-            pid = data.get("cloudaicompanionProject", "")
-            if isinstance(pid, dict):
-                pid = pid.get("id", "")
-            if pid:
-                return pid
+            if resp.ok:
+                load_payload = resp.json()
+                break
         except Exception:
             continue
+
+    if load_payload:
+        # Extract managed project ID
+        cap = load_payload.get("cloudaicompanionProject", "")
+        if isinstance(cap, dict):
+            cap = cap.get("id", "")
+        if cap:
+            log.info("Resolved managed project: %s", cap)
+            return cap
+
+    # Step 2: Auto-provision via onboardUser
+    log.info("No managed project found — auto-provisioning via onboardUser...")
+
+    # Get tier ID from loadCodeAssist response
+    tier_id = "FREE"
+    if load_payload and load_payload.get("allowedTiers"):
+        tiers = load_payload["allowedTiers"]
+        for t in tiers:
+            if isinstance(t, dict) and t.get("isDefault"):
+                tier_id = t.get("id", "FREE")
+                break
+        if tier_id == "FREE" and tiers:
+            first = tiers[0]
+            if isinstance(first, dict) and first.get("id"):
+                tier_id = first["id"]
+
+    for endpoint in ENDPOINTS_LOAD:
+        for attempt in range(10):
+            try:
+                resp = requests.post(
+                    f"{endpoint}/v1internal:onboardUser",
+                    headers=headers,
+                    json={"tierId": tier_id, "metadata": metadata},
+                    timeout=15,
+                )
+                if not resp.ok:
+                    break
+                data = resp.json()
+                managed_pid = (data.get("response") or {}).get("cloudaicompanionProject", {})
+                if isinstance(managed_pid, dict):
+                    managed_pid = managed_pid.get("id", "")
+                if data.get("done") and managed_pid:
+                    log.info("Auto-provisioned managed project: %s", managed_pid)
+                    return managed_pid
+                if data.get("done"):
+                    break
+                # Not done yet — wait and retry
+                time.sleep(5)
+            except Exception:
+                break
 
     log.warning("Could not resolve project ID, using default: %s", DEFAULT_PROJECT_ID)
     return DEFAULT_PROJECT_ID
