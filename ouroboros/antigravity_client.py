@@ -462,6 +462,7 @@ class AntigravityClient:
                             "ts": utc_now_iso(), "type": "antigravity_api_diag",
                             "status": resp.status_code,
                             "model": api_model,
+                            "model_sent": body.get("model", "?"),
                             "n_contents": n_contents,
                             "n_tools": n_tools,
                             "fc_fr_diag": fc_diag,
