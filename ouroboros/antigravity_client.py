@@ -274,7 +274,7 @@ def _google_to_openai_message(response: Dict[str, Any]) -> Dict[str, Any]:
         elif "functionCall" in part:
             fc = part["functionCall"]
             tc_entry: Dict[str, Any] = {
-                "id": f"call_{tc_index}",
+                "id": fc.get("id", f"call_{tc_index}"),
                 "type": "function",
                 "function": {
                     "name": fc.get("name", ""),
@@ -284,6 +284,8 @@ def _google_to_openai_message(response: Dict[str, Any]) -> Dict[str, Any]:
             # Preserve thoughtSignature for roundtrip (API requires it back)
             if part.get("thoughtSignature"):
                 tc_entry["_thought_signature"] = part["thoughtSignature"]
+            else:
+                log.warning("Antigravity: functionCall '%s' has NO thoughtSignature", fc.get("name"))
             tool_calls.append(tc_entry)
             tc_index += 1
 
@@ -428,10 +430,21 @@ class AntigravityClient:
                         any("functionResponse" in p for p in c.get("parts", []))
                         for c in body.get("request", {}).get("contents", [])
                     )
+                    # Dump which contents have functionCall/Response parts for debugging
+                    fc_diag = []
+                    for ci, c in enumerate(body.get("request", {}).get("contents", [])):
+                        for pi, p in enumerate(c.get("parts", [])):
+                            if "functionCall" in p:
+                                has_ts = "thoughtSignature" in p
+                                fc_name = p["functionCall"].get("name", "?")
+                                fc_diag.append(f"C{ci}P{pi}:FC({fc_name},ts={has_ts})")
+                            elif "functionResponse" in p:
+                                fc_diag.append(f"C{ci}P{pi}:FR({p['functionResponse'].get('name','?')})")
                     log.warning(
-                        "%d on %s: model=%s, tools=%d, contents=%d, has_functionCall=%s, has_functionResponse=%s, resp=%s",
+                        "%d on %s: model=%s, tools=%d, contents=%d, FC/FR: [%s], resp=%s",
                         resp.status_code, endpoint, api_model, n_tools, n_contents,
-                        has_fn_call, has_fn_response, resp.text[:300],
+                        ", ".join(fc_diag) if fc_diag else "none",
+                        resp.text[:300],
                     )
                     last_error = f"{resp.status_code} from {endpoint}: {resp.text[:200]}"
                     continue
