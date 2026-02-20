@@ -167,6 +167,30 @@ for sub in ["state", "logs", "memory", "index", "locks", "archive"]:
     (DRIVE_ROOT / sub).mkdir(parents=True, exist_ok=True)
 REPO_DIR.mkdir(parents=True, exist_ok=True)
 
+# ----------------------------
+# 2.1) Antigravity OAuth login (if needed)
+# ----------------------------
+if _LLM_BACKEND == "antigravity":
+    # Store tokens on Drive so they survive Colab reboots
+    os.environ["OUROBOROS_TOKEN_DIR"] = str(DRIVE_ROOT / "state")
+    from ouroboros.antigravity_auth import is_logged_in, login_manual
+    if not is_logged_in():
+        print("\n" + "=" * 60)
+        print("🔑 ANTIGRAVITY: Google OAuth login required (one-time setup)")
+        print("=" * 60)
+        try:
+            result = login_manual()
+            print(f"\n✅ Logged in as {result.get('email', '?')} (project: {result.get('project_id', '?')})")
+        except Exception as e:
+            print(f"\n⚠️ Antigravity login failed: {e}")
+            print("Falling back to OpenRouter backend.")
+            os.environ["OUROBOROS_LLM_BACKEND"] = "openrouter"
+            _LLM_BACKEND = "openrouter"
+            if not os.environ.get("OPENROUTER_API_KEY"):
+                raise RuntimeError("Neither Antigravity nor OpenRouter configured. Set OPENROUTER_API_KEY or retry login.")
+    else:
+        print("✅ Antigravity: using saved credentials")
+
 # Clear stale owner mailbox files from previous session
 try:
     from ouroboros.owner_inject import get_pending_path
