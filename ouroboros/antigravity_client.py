@@ -369,7 +369,7 @@ class AntigravityClient:
                 inner_body["generationConfig"]["maxOutputTokens"] = max(max_tokens, 65536)
             else:
                 # Gemini 3 uses thinkingLevel string (not numeric budget)
-                # Pro models: tier in model name, Flash: thinkingLevel param
+                # -high/-low are OUR internal suffixes, NOT part of the API model name
                 level = "low"  # safe default
                 if "-high" in api_model:
                     level = "high"
@@ -377,13 +377,17 @@ class AntigravityClient:
                     "thinkingLevel": level,
                 }
 
+        # Strip internal thinking-level suffix from model name before API call.
+        # API only knows 'gemini-3.1-pro', not 'gemini-3.1-pro-high'.
+        api_model_clean = api_model.replace("-high", "").replace("-low", "")
+
         # Antigravity wraps the request: {project, model, request, requestType, ...}
         import uuid
         body = {
             "project": project_id or "",
-            "model": api_model,
+            "model": api_model_clean,
             "request": {
-                "model": api_model,
+                "model": api_model_clean,
                 **inner_body,
             },
             "requestType": "agent",
