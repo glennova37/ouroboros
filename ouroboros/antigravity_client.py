@@ -119,12 +119,17 @@ def _openai_to_google(
                         args = json.loads(args)
                     except json.JSONDecodeError:
                         args = {"raw": args}
-                parts.append({
+                fc_part: Dict[str, Any] = {
                     "functionCall": {
                         "name": fn.get("name", ""),
                         "args": args,
                     }
-                })
+                }
+                # Restore thoughtSignature if saved during response parsing
+                ts = tc.get("_thought_signature")
+                if ts:
+                    fc_part["thoughtSignature"] = ts
+                parts.append(fc_part)
             contents.append({"role": google_role, "parts": parts})
             continue
 
@@ -263,14 +268,18 @@ def _google_to_openai_message(response: Dict[str, Any]) -> Dict[str, Any]:
             text_parts.append(part["text"])
         elif "functionCall" in part:
             fc = part["functionCall"]
-            tool_calls.append({
+            tc_entry: Dict[str, Any] = {
                 "id": f"call_{tc_index}",
                 "type": "function",
                 "function": {
                     "name": fc.get("name", ""),
                     "arguments": json.dumps(fc.get("args", {})),
                 },
-            })
+            }
+            # Preserve thoughtSignature for roundtrip (API requires it back)
+            if part.get("thoughtSignature"):
+                tc_entry["_thought_signature"] = part["thoughtSignature"]
+            tool_calls.append(tc_entry)
             tc_index += 1
 
     msg: Dict[str, Any] = {"role": "assistant"}
