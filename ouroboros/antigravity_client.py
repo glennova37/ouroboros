@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -16,6 +17,7 @@ from ouroboros.antigravity_auth import (
     get_access_token,
     get_project_id,
 )
+from ouroboros.utils import append_jsonl, utc_now_iso
 
 log = logging.getLogger(__name__)
 
@@ -123,7 +125,6 @@ def _openai_to_google(
                     "functionCall": {
                         "name": fn.get("name", ""),
                         "args": args,
-                        "id": tc.get("id", f"call_{idx}"),
                     }
                 }
                 # Restore thoughtSignature if saved during response parsing
@@ -437,15 +438,32 @@ class AntigravityClient:
                             if "functionCall" in p:
                                 has_ts = "thoughtSignature" in p
                                 fc_name = p["functionCall"].get("name", "?")
-                                fc_diag.append(f"C{ci}P{pi}:FC({fc_name},ts={has_ts})")
+                                fc_keys = sorted(p["functionCall"].keys())
+                                fc_diag.append(f"C{ci}P{pi}:FC({fc_name},ts={has_ts},keys={fc_keys})")
                             elif "functionResponse" in p:
-                                fc_diag.append(f"C{ci}P{pi}:FR({p['functionResponse'].get('name','?')})")
+                                fr_keys = sorted(p["functionResponse"].keys())
+                                fc_diag.append(f"C{ci}P{pi}:FR({p['functionResponse'].get('name','?')},keys={fr_keys})")
                     log.warning(
                         "%d on %s: model=%s, tools=%d, contents=%d, FC/FR: [%s], resp=%s",
                         resp.status_code, endpoint, api_model, n_tools, n_contents,
                         ", ".join(fc_diag) if fc_diag else "none",
                         resp.text[:300],
                     )
+                    # Also emit to events.jsonl so user can see it
+                    try:
+                        import pathlib as _pl
+                        _drive_logs = _pl.Path(os.environ.get("OUROBOROS_DRIVE_LOGS", "/content/drive/MyDrive/Ouroboros/logs"))
+                        append_jsonl(_drive_logs / "events.jsonl", {
+                            "ts": utc_now_iso(), "type": "antigravity_api_diag",
+                            "status": resp.status_code,
+                            "model": api_model,
+                            "n_contents": n_contents,
+                            "n_tools": n_tools,
+                            "fc_fr_diag": fc_diag,
+                            "resp_text": resp.text[:500],
+                        })
+                    except Exception:
+                        pass
                     last_error = f"{resp.status_code} from {endpoint}: {resp.text[:200]}"
                     continue
 
