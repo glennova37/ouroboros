@@ -753,6 +753,13 @@ def run_llm_loop(
                 messages, llm_trace, emit_progress
             )
 
+            # Emit tool-call progress to Telegram (every 3 rounds, or every round if errors)
+            # This is user-facing visibility only — does NOT affect LLM context
+            if round_idx % 3 == 0 or error_count > 0:
+                tool_names = [tc.get("function", {}).get("name", "?") for tc in tool_calls]
+                err_flag = f" ⚠️{error_count}err" if error_count else ""
+                emit_progress(f"🔧 R{round_idx}: {', '.join(tool_names)}{err_flag}")
+
             # --- Budget guard ---
             # LLM decides when to stop (Bible P0, P3). We only enforce hard budget limit.
             budget_result = _check_budget_limits(
