@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
-DEFAULT_LIGHT_MODEL = "gemini-3.1-pro"
+DEFAULT_LIGHT_MODEL = "gemini-3-flash-preview"
 
 
 def get_llm_backend() -> str:

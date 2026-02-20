@@ -42,30 +42,32 @@ def _get_headers(access_token: str) -> Dict[str, str]:
     }
 
 # ---------------------------------------------------------------------------
-# Model name mapping → actual Google API model names
+# Model name mapping → Cloud Code API model names
 # ---------------------------------------------------------------------------
-# Official model codes (Feb 2026):
-#   gemini-3.1-pro-preview              — general purpose
-#   gemini-3.1-pro-preview-customtools  — optimized for agentic + custom tools
-#   gemini-3-flash                      — fast
-# Internal convention: -high/-low suffix = thinkingLevel, stripped before API call
+# Verified via brute-force scan (2026-02-20):
+#   gemini-3-pro-preview     — best Gemini, needs thinkingLevel:high
+#   gemini-3-flash-preview   — fast, any thinkingLevel works
+#   gemini-2.5-pro           — stable, NO thinkingLevel support
+#   gemini-2.5-flash         — stable, NO thinkingLevel support
+#   gemini-2.0-flash         — legacy
+# NOTE: gemini-3.1-pro* does NOT exist on Cloud Code API!
 
 _MODEL_MAP = {
     # OpenRouter-style paths
-    "google/gemini-3-pro-preview": "gemini-3-pro-preview-high",
-    "google/gemini-3-flash-preview": "gemini-3-flash",
-    "google/gemini-3.1-pro-preview": "gemini-3.1-pro-preview-customtools-high",
+    "google/gemini-3-pro-preview": "gemini-3-pro-preview",
+    "google/gemini-3-flash-preview": "gemini-3-flash-preview",
     # Claude
     "anthropic/claude-sonnet-4.6": "claude-sonnet-4-6",
     "anthropic/claude-opus-4.6": "claude-opus-4-6-thinking",
-    # Pass-through: user-facing names → actual API names + thinking level
-    "gemini-3.1-pro": "gemini-3.1-pro-preview-customtools-high",
-    "gemini-3.1-pro-preview": "gemini-3.1-pro-preview-high",
-    "gemini-3.1-pro-preview-customtools": "gemini-3.1-pro-preview-customtools-high",
-    "gemini-3-pro": "gemini-3-pro-preview-high",
-    "gemini-3-flash": "gemini-3-flash",
+    # Pass-through: user-facing shorthand → actual API name
+    "gemini-3-pro": "gemini-3-pro-preview",
+    "gemini-3.1-pro": "gemini-3-pro-preview",  # 3.1 doesn't exist, use 3
+    "gemini-3-flash": "gemini-3-flash-preview",
+    "gemini-3-pro-preview": "gemini-3-pro-preview",
+    "gemini-3-flash-preview": "gemini-3-flash-preview",
     "gemini-2.5-pro": "gemini-2.5-pro",
     "gemini-2.5-flash": "gemini-2.5-flash",
+    "gemini-2.0-flash": "gemini-2.0-flash",
     "claude-sonnet-4-6": "claude-sonnet-4-6",
     "claude-opus-4-6": "claude-opus-4-6-thinking",
     "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
@@ -360,37 +362,30 @@ class AntigravityClient:
             "temperature": 1.0,
         }
 
-        # Add thinking config ONLY for thinking-capable models
-        is_thinking = ("gemini-3" in api_model) or ("thinking" in api_model)
-        if is_thinking:
-            if "claude" in api_model:
-                # Claude: maxOutputTokens MUST be > thinking_budget
-                inner_body["generationConfig"]["thinkingConfig"] = {
-                    "include_thoughts": True,
-                    "thinking_budget": 32768,
-                }
-                inner_body["generationConfig"]["maxOutputTokens"] = max(max_tokens, 65536)
-            else:
-                # Gemini 3 uses thinkingLevel string (not numeric budget)
-                # -high/-low are OUR internal suffixes, NOT part of the API model name
-                level = "low"  # safe default
-                if "-high" in api_model:
-                    level = "high"
-                inner_body["generationConfig"]["thinkingConfig"] = {
-                    "thinkingLevel": level,
-                }
-
-        # Strip internal thinking-level suffix from model name before API call.
-        # API only knows 'gemini-3.1-pro', not 'gemini-3.1-pro-high'.
-        api_model_clean = api_model.replace("-high", "").replace("-low", "")
+        # Add thinking config per model family (verified via scan)
+        if "thinking" in api_model:
+            # Claude thinking models
+            inner_body["generationConfig"]["thinkingConfig"] = {
+                "include_thoughts": True,
+                "thinking_budget": 32768,
+            }
+            inner_body["generationConfig"]["maxOutputTokens"] = max(max_tokens, 65536)
+        elif "gemini-3" in api_model:
+            # Gemini 3 Pro/Flash: use thinkingLevel
+            # Pro needs "high"; Flash accepts any
+            level = "high" if "pro" in api_model else "low"
+            inner_body["generationConfig"]["thinkingConfig"] = {
+                "thinkingLevel": level,
+            }
+        # gemini-2.5-* and gemini-2.0-*: NO thinkingConfig (causes 400)
 
         # Antigravity wraps the request: {project, model, request, requestType, ...}
         import uuid
         body = {
             "project": project_id or "",
-            "model": api_model_clean,
+            "model": api_model,
             "request": {
-                "model": api_model_clean,
+                "model": api_model,
                 **inner_body,
             },
             "requestType": "agent",
