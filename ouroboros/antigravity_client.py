@@ -315,9 +315,18 @@ class AntigravityClient:
         # claude-sonnet-4-6 is NON-thinking — thinkingConfig causes 400
         is_thinking = ("gemini-3" in api_model) or ("thinking" in api_model)
         if is_thinking:
-            inner_body["generationConfig"]["thinkingConfig"] = {
-                "thinkingBudget": 8192,
-            }
+            if "claude" in api_model:
+                # Claude uses snake_case keys + needs higher maxOutputTokens
+                inner_body["generationConfig"]["thinkingConfig"] = {
+                    "include_thoughts": True,
+                    "thinking_budget": 8192,
+                }
+                inner_body["generationConfig"]["maxOutputTokens"] = max(max_tokens, 16384)
+            else:
+                # Gemini uses camelCase
+                inner_body["generationConfig"]["thinkingConfig"] = {
+                    "thinkingBudget": 8192,
+                }
 
         # Antigravity wraps the request: {project, model, request, requestType, ...}
         import uuid
