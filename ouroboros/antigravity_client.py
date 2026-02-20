@@ -44,18 +44,23 @@ def _get_headers(access_token: str) -> Dict[str, str]:
 # ---------------------------------------------------------------------------
 
 _MODEL_MAP = {
-    # Confirmed working Antigravity model names (tested 2026-02-20)
-    # Gemini
-    "google/gemini-3-pro-preview": "gemini-3-pro-high",
+    # Exact API model names from opencode-antigravity-auth/model-resolver.ts
+    # Gemini 3 Pro: REQUIRES tier suffix (-low or -high)
+    # Gemini 3 Flash: bare name (thinkingLevel in config)
+    "google/gemini-3-pro-preview": "gemini-3-pro-low",
     "google/gemini-3-flash-preview": "gemini-3-flash",
-    "google/gemini-3.1-pro-preview": "gemini-3.1-pro",
+    "google/gemini-3.1-pro-preview": "gemini-3.1-pro-low",
     # Claude
     "anthropic/claude-sonnet-4.6": "claude-sonnet-4-6",
     "anthropic/claude-opus-4.6": "claude-opus-4-6-thinking",
-    # Pass-through for already-correct names
-    "gemini-3-pro": "gemini-3-pro-high",
+    # Pass-through
+    "gemini-3-pro": "gemini-3-pro-low",
+    "gemini-3-pro-low": "gemini-3-pro-low",
+    "gemini-3-pro-high": "gemini-3-pro-high",
     "gemini-3-flash": "gemini-3-flash",
-    "gemini-3.1-pro": "gemini-3.1-pro",
+    "gemini-3.1-pro": "gemini-3.1-pro-low",
+    "gemini-3.1-pro-low": "gemini-3.1-pro-low",
+    "gemini-3.1-pro-high": "gemini-3.1-pro-high",
     "claude-sonnet-4-6": "claude-sonnet-4-6",
     "claude-opus-4-6": "claude-opus-4-6-thinking",
     "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
@@ -312,20 +317,23 @@ class AntigravityClient:
         }
 
         # Add thinking config ONLY for thinking-capable models
-        # claude-sonnet-4-6 is NON-thinking — thinkingConfig causes 400
         is_thinking = ("gemini-3" in api_model) or ("thinking" in api_model)
         if is_thinking:
             if "claude" in api_model:
-                # Claude uses snake_case keys + needs higher maxOutputTokens
+                # Claude uses snake_case + high budget (32768)
                 inner_body["generationConfig"]["thinkingConfig"] = {
                     "include_thoughts": True,
-                    "thinking_budget": 8192,
+                    "thinking_budget": 32768,
                 }
                 inner_body["generationConfig"]["maxOutputTokens"] = max(max_tokens, 16384)
             else:
-                # Gemini uses camelCase
+                # Gemini 3 uses thinkingLevel string (not numeric budget)
+                # Pro models: tier in model name, Flash: thinkingLevel param
+                level = "low"  # safe default
+                if "-high" in api_model:
+                    level = "high"
                 inner_body["generationConfig"]["thinkingConfig"] = {
-                    "thinkingBudget": 8192,
+                    "thinkingLevel": level,
                 }
 
         # Antigravity wraps the request: {project, model, request, requestType, ...}
