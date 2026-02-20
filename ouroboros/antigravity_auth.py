@@ -265,9 +265,10 @@ def _fetch_project_id(access_token: str) -> str:
         "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
         "Client-Metadata": '{"ideType":"ANTIGRAVITY","platform":"MACOS","pluginType":"GEMINI"}',
     }
+    # Note: "platform" must NOT be in body metadata (protobuf enum rejects strings).
+    # It's only used in the Client-Metadata header as free-form JSON.
     metadata = {
         "ideType": "ANTIGRAVITY",
-        "platform": "MACOS",
         "pluginType": "GEMINI",
     }
 
