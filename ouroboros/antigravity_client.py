@@ -42,27 +42,30 @@ def _get_headers(access_token: str) -> Dict[str, str]:
     }
 
 # ---------------------------------------------------------------------------
-# Model name mapping (OpenRouter-style → Antigravity API model name)
+# Model name mapping → actual Google API model names
 # ---------------------------------------------------------------------------
+# Official model codes (Feb 2026):
+#   gemini-3.1-pro-preview              — general purpose
+#   gemini-3.1-pro-preview-customtools  — optimized for agentic + custom tools
+#   gemini-3-flash                      — fast
+# Internal convention: -high/-low suffix = thinkingLevel, stripped before API call
 
 _MODEL_MAP = {
-    # Exact API model names from opencode-antigravity-auth/model-resolver.ts
-    # Gemini 3 Pro: REQUIRES tier suffix (-low or -high)
-    # Gemini 3 Flash: bare name (thinkingLevel in config)
-    "google/gemini-3-pro-preview": "gemini-3-pro-high",
+    # OpenRouter-style paths
+    "google/gemini-3-pro-preview": "gemini-3-pro-preview-high",
     "google/gemini-3-flash-preview": "gemini-3-flash",
-    "google/gemini-3.1-pro-preview": "gemini-3.1-pro-high",
+    "google/gemini-3.1-pro-preview": "gemini-3.1-pro-preview-customtools-high",
     # Claude
     "anthropic/claude-sonnet-4.6": "claude-sonnet-4-6",
     "anthropic/claude-opus-4.6": "claude-opus-4-6-thinking",
-    # Pass-through
-    "gemini-3-pro": "gemini-3-pro-high",
-    "gemini-3-pro-low": "gemini-3-pro-low",
-    "gemini-3-pro-high": "gemini-3-pro-high",
+    # Pass-through: user-facing names → actual API names + thinking level
+    "gemini-3.1-pro": "gemini-3.1-pro-preview-customtools-high",
+    "gemini-3.1-pro-preview": "gemini-3.1-pro-preview-high",
+    "gemini-3.1-pro-preview-customtools": "gemini-3.1-pro-preview-customtools-high",
+    "gemini-3-pro": "gemini-3-pro-preview-high",
     "gemini-3-flash": "gemini-3-flash",
-    "gemini-3.1-pro": "gemini-3.1-pro-high",
-    "gemini-3.1-pro-low": "gemini-3.1-pro-low",
-    "gemini-3.1-pro-high": "gemini-3.1-pro-high",
+    "gemini-2.5-pro": "gemini-2.5-pro",
+    "gemini-2.5-flash": "gemini-2.5-flash",
     "claude-sonnet-4-6": "claude-sonnet-4-6",
     "claude-opus-4-6": "claude-opus-4-6-thinking",
     "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
